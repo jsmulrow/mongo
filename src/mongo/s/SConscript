@@ -324,6 +324,17 @@ env.Library(
 )
 
 env.Library(
+    target='committed_optime_metadata_hook',
+    source=[
+        'committed_optime_metadata_hook.cpp'
+    ],
+    LIBDEPS=[
+        '$BUILD_DIR/mongo/rpc/metadata',
+        'coreshard',
+    ]
+)
+
+env.Library(
     target='is_mongos',
     source=[
         'is_mongos.cpp',

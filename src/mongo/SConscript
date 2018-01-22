@@ -422,6 +422,7 @@ env.Install(
             's/coreshard',
             's/is_mongos',
             's/sharding_egress_metadata_hook_for_mongos',
+            's/committed_optime_metadata_hook',
             's/sharding_initialization',
             'transport/service_entry_point',
             'transport/transport_layer_manager',
