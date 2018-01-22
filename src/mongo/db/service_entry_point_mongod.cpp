@@ -225,10 +225,13 @@ private:
     const bool _maintenanceModeSet;
 };
 
+constexpr auto kLastCommittedOpTimeFieldName = "lastCommittedOpTime"_sd;
+
 // Called from the error contexts where request may not be available.
 // It only attaches clusterTime and operationTime.
 void appendReplyMetadataOnError(OperationContext* opCtx, BSONObjBuilder* metadataBob) {
     auto const replCoord = repl::ReplicationCoordinator::get(opCtx);
+    const bool isConfig = serverGlobalParams.clusterRole == ClusterRole::ConfigServer;
     const bool isReplSet =
         replCoord->getReplicationMode() == repl::ReplicationCoordinator::modeReplSet;
 
@@ -244,6 +247,12 @@ void appendReplyMetadataOnError(OperationContext* opCtx, BSONObjBuilder* metadat
                 validator->trySignLogicalTime(LogicalClock::get(opCtx)->getClusterTime());
             rpc::LogicalTimeMetadata logicalTimeMetadata(currentTime);
             logicalTimeMetadata.writeToMetadata(metadataBob);
+        }
+
+        if (ShardingState::get(opCtx)->enabled() || isConfig) {
+            auto lastCommittedOpTime =
+                repl::ReplicationCoordinator::get(opCtx)->getLastCommittedOpTime();
+            metadataBob->append(kLastCommittedOpTimeFieldName, lastCommittedOpTime.getTimestamp());
         }
     }
 }
@@ -280,6 +289,11 @@ void appendReplyMetadata(OperationContext* opCtx,
                 validator->trySignLogicalTime(LogicalClock::get(opCtx)->getClusterTime());
             rpc::LogicalTimeMetadata logicalTimeMetadata(currentTime);
             logicalTimeMetadata.writeToMetadata(metadataBob);
+        }
+
+        if (isShardingAware || isConfig) {
+            auto lastCommittedOpTime = replCoord->getLastCommittedOpTime();
+            metadataBob->append(kLastCommittedOpTimeFieldName, lastCommittedOpTime.getTimestamp());
         }
     }
 
