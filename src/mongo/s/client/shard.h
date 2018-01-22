@@ -33,6 +33,7 @@
 #include "mongo/bson/bsonobj.h"
 #include "mongo/client/connection_string.h"
 #include "mongo/client/read_preference.h"
+#include "mongo/db/logical_time.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/repl/optime.h"
 #include "mongo/db/repl/read_concern_args.h"
@@ -238,6 +239,10 @@ public:
      * server called.
      */
     static bool shouldErrorBePropagated(ErrorCodes::Error code);
+
+    virtual void updateLastCommittedOpTime(const LogicalTime& lastCommittedOpTime) = 0;
+
+    virtual LogicalTime getLastCommittedOpTime() = 0;
 
 protected:
     Shard(const ShardId& id);

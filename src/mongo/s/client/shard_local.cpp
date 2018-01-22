@@ -75,6 +75,14 @@ void ShardLocal::updateReplSetMonitor(const HostAndPort& remoteHost,
     MONGO_UNREACHABLE;
 }
 
+void ShardLocal::updateLastCommittedOpTime(const LogicalTime& lastCommittedOpTime) {
+    MONGO_UNREACHABLE;
+}
+
+LogicalTime ShardLocal::getLastCommittedOpTime() {
+    MONGO_UNREACHABLE;
+}
+
 std::string ShardLocal::toString() const {
     return getId().toString() + ":<local>";
 }

@@ -33,6 +33,7 @@
 #include "mongo/s/client/shard.h"
 
 #include "mongo/base/disallow_copying.h"
+#include "mongo/stdx/mutex.h"
 
 namespace mongo {
 
@@ -75,6 +76,10 @@ public:
                                const BSONObj& keys,
                                bool unique) override;
 
+    void updateLastCommittedOpTime(const LogicalTime& lastCommittedOpTime) override;
+
+    LogicalTime getLastCommittedOpTime() override;
+
 private:
     /**
      * Returns the metadata that should be used when running commands against this shard with
@@ -107,6 +112,12 @@ private:
      * Targeter for obtaining hosts from which to read or to which to write.
      */
     const std::shared_ptr<RemoteCommandTargeter> _targeter;
+
+    // Protects _lastCommittedOpTime.
+    mutable stdx::mutex _lastCommittedOpTimeMutex;
+
+    // The opTime of the last committed write on this shard. Latest value we've seen.
+    LogicalTime _lastCommittedOpTime;
 };
 
 }  // namespace mongo

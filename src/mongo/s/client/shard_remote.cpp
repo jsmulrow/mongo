@@ -41,6 +41,7 @@
 #include "mongo/client/remote_command_targeter.h"
 #include "mongo/client/replica_set_monitor.h"
 #include "mongo/db/jsobj.h"
+#include "mongo/db/logical_time.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/query/query_request.h"
 #include "mongo/db/repl/read_concern_args.h"
@@ -127,6 +128,20 @@ void ShardRemote::updateReplSetMonitor(const HostAndPort& remoteHost,
     } else if (remoteCommandStatus == ErrorCodes::NetworkInterfaceExceededTimeLimit) {
         _targeter->markHostUnreachable(remoteHost, remoteCommandStatus);
     }
+}
+
+void ShardRemote::updateLastCommittedOpTime(const LogicalTime& lastCommittedOpTime) {
+    stdx::lock_guard<stdx::mutex> lk(_lastCommittedOpTimeMutex);
+
+    // A secondary may return a lastCommittedOpTime less than the highest seen so far.
+    if (lastCommittedOpTime > _lastCommittedOpTime) {
+        _lastCommittedOpTime = lastCommittedOpTime;
+    }
+}
+
+LogicalTime ShardRemote::getLastCommittedOpTime() {
+    stdx::lock_guard<stdx::mutex> lk(_lastCommittedOpTimeMutex);
+    return _lastCommittedOpTime;
 }
 
 std::string ShardRemote::toString() const {
