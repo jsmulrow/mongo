@@ -209,10 +209,15 @@ void execCommandClient(OperationContext* opCtx,
         CommandHelpers::appendCommandStatus(result, readConcernParseStatus);
         return;
     }
-    if (readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern) {
+
+    // TODO: find out if there is a transaction info passed in the command.
+    bool isInTransaction = true;
+    if (readConcernArgs.getLevel() == repl::ReadConcernLevel::kSnapshotReadConcern &&
+        !isInTransaction) {
         CommandHelpers::appendCommandStatus(
             result,
-            Status(ErrorCodes::InvalidOptions, "read concern snapshot is not supported on mongos"));
+            Status(ErrorCodes::InvalidOptions,
+                   "read concern snapshot is supported only in a transaction"));
         return;
     }
 
