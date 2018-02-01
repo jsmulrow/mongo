@@ -236,6 +236,8 @@ error_code("InternalErrorNotSupported", 235) # this function or module is not av
 error_code("ForTestingErrorExtraInfo", 236, extra="ErrorExtraInfoExample")
 error_code("CursorKilled", 237)
 error_code("NotImplemented", 238)
+error_code("SnapshotUnavailable", 239)
+error_code("SnapshotTooOld", 240)
 
 # Error codes 4000-8999 are reserved.
 
@@ -290,3 +292,7 @@ error_class("ConnectionFatalMessageParseError", ["IllegalOpMsgFlag",
                                                  "TooManyDocumentSequences"])
 
 error_class("ExceededTimeLimitError", ["ExceededTimeLimit", "NetworkInterfaceExceededTimeLimit"])
+
+error_class("StaleSnapshotError",
+            ["StaleConfig", "StaleShardVersion", "StaleEpoch", "SnapshotUnavailable",
+             "SnapshotTooOld"])
