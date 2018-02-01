@@ -38,6 +38,7 @@
 #include "mongo/db/auth/authorization_session.h"
 #include "mongo/db/client.h"
 #include "mongo/db/commands.h"
+#include "mongo/db/logical_clock.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/db/pipeline/document_source_change_stream.h"
 #include "mongo/db/pipeline/document_source_out.h"
@@ -47,6 +48,7 @@
 #include "mongo/db/query/collation/collator_factory_interface.h"
 #include "mongo/db/query/cursor_response.h"
 #include "mongo/db/query/find_common.h"
+#include "mongo/db/repl/read_concern_args.h"
 #include "mongo/db/views/resolved_view.h"
 #include "mongo/db/views/view.h"
 #include "mongo/executor/task_executor_pool.h"
@@ -255,6 +257,24 @@ BSONObj createCommandForMergingShard(
     return mergeCmd.freeze().toBson();
 }
 
+/**
+ *  takes the lastCommittedOpTime from shards.
+ */
+LogicalTime computeAtClusterTime(OperationContext* opCtx, std::set<ShardId> shardIds) {
+    // TODO: implement
+    return LogicalClock::get(opCtx)->getClusterTime();
+}
+
+/**
+ * Verifies that the shardIds are the same as they were atClusteTime using versioned table.
+ */
+bool verifyTargetedShardsAtClusterTime(OperationContext* opCtx,
+                                       std::set<ShardId> shardIds,
+                                       LogicalTime atClusterTime) {
+    // TODO: implement
+    return true;
+}
+
 std::vector<ClusterClientCursorParams::RemoteCursor> establishShardCursors(
     OperationContext* opCtx,
     const NamespaceString& nss,
@@ -263,7 +283,10 @@ std::vector<ClusterClientCursorParams::RemoteCursor> establishShardCursors(
     const BSONObj& cmdObj,
     const ReadPreferenceSetting& readPref,
     const BSONObj& shardQuery,
-    const BSONObj& collation) {
+    const BSONObj& collation,
+    const LogicalTime atClusterTime) {
+
+    bool needsSnapshot = atClusterTime != LogicalTime::kUninitialized;
     LOG(1) << "Dispatching command " << redact(cmdObj) << " to establish cursors on shards";
 
     std::set<ShardId> shardIds =
@@ -273,8 +296,15 @@ std::vector<ClusterClientCursorParams::RemoteCursor> establishShardCursors(
     if (mustRunOnAllShards(nss, *routingInfo, litePipe)) {
         // The pipeline contains a stage which must be run on all shards. Skip versioning and
         // enqueue the raw command objects.
-        for (auto&& shardId : shardIds) {
-            requests.emplace_back(std::move(shardId), cmdObj);
+        if (needsSnapshot) {
+            auto cmdObjAtClusterTime = appendAtClusterTime(cmdObj, atClusterTime);
+            for (auto&& shardId : shardIds) {
+                requests.emplace_back(std::move(shardId), std::move(cmdObjAtClusterTime));
+            }
+        } else {
+            for (auto&& shardId : shardIds) {
+                requests.emplace_back(std::move(shardId), cmdObj);
+            }
         }
     } else if (routingInfo->cm()) {
         // The collection is sharded. Use the routing table to decide which shards to target
@@ -282,7 +312,12 @@ std::vector<ClusterClientCursorParams::RemoteCursor> establishShardCursors(
         for (auto& shardId : shardIds) {
             auto versionedCmdObj =
                 appendShardVersion(cmdObj, routingInfo->cm()->getVersion(shardId));
-            requests.emplace_back(std::move(shardId), std::move(versionedCmdObj));
+            if (needsSnapshot) {
+                auto cmdObjAtClusterTime = appendAtClusterTime(versionedCmdObj, atClusterTime);
+                requests.emplace_back(std::move(shardId), std::move(cmdObjAtClusterTime));
+            } else {
+                requests.emplace_back(std::move(shardId), std::move(versionedCmdObj));
+            }
         }
     } else {
         // The collection is unsharded. Target only the primary shard for the database.
@@ -314,9 +349,10 @@ std::vector<ClusterClientCursorParams::RemoteCursor> establishShardCursors(
                                 requests,
                                 false /* do not allow partial results */);
 
-    } catch (const ExceptionForCat<ErrorCategory::StaleShardingError>&) {
+    } catch (const ExceptionForCat<ErrorCategory::StaleSnapshotError>&) {
         // If any shard returned a stale shardVersion error, invalidate the routing table cache.
         // This will cause the cache to be refreshed the next time it is accessed.
+        // TODO: may need to exclude stale snapshot error's
         Grid::get(opCtx)->catalogCache()->onStaleConfigError(std::move(*routingInfo));
         throw;
     }
@@ -384,6 +420,14 @@ DispatchShardPipelineResults dispatchShardPipeline(
 
     int numAttempts = 0;
 
+    repl::ReadConcernArgs readConcernArgs;
+    auto readConcernParseStatus = readConcernArgs.initialize(aggRequest.getReadConcern());
+    invariant(readConcernParseStatus.isOK()); // this must be checked at startegy
+
+    // TODO: keep the parsed readConcern or jsut level in the agg request to avoid reparsing.
+    bool isSnapshotRead(readConcernArgs.getLevel() ==
+                        repl::ReadConcernLevel::kSnapshotReadConcern);
+
     while (++numAttempts <= kMaxNumStaleVersionRetries) {
         // We need to grab a new routing table at the start of each iteration, since a stale config
         // exception will invalidate the previous one.
@@ -402,6 +446,18 @@ DispatchShardPipelineResults dispatchShardPipeline(
                 "No targets were found for this aggregation. All shards were removed from the "
                 "cluster mid-operation",
                 shardIds.size() > 0);
+
+
+        LogicalTime atClusterTime;
+
+        if (isSnapshotRead) {
+            atClusterTime = computeAtClusterTime(opCtx, shardIds);
+            bool isSameShardIds = verifyTargetedShardsAtClusterTime(opCtx, shardIds, atClusterTime);
+            if (!isSameShardIds) {  // use the current clusterTime if chunks moved
+                atClusterTime = LogicalClock::get(opCtx)->getClusterTime();
+            }
+            invariant(atClusterTime != LogicalTime::kUninitialized);
+        }
 
         // Don't need to split the pipeline if we are only targeting a single shard, unless:
         // - There is a stage that needs to be run on the primary shard and the single target shard
@@ -470,12 +526,13 @@ DispatchShardPipelineResults dispatchShardPipeline(
                                                 targetedCommand,
                                                 ReadPreferenceSetting::get(opCtx),
                                                 shardQuery,
-                                                aggRequest.getCollation());
+                                                aggRequest.getCollation(),
+                                                atClusterTime);
             }
-        } catch (const ExceptionForCat<ErrorCategory::StaleShardingError>& ex) {
-            LOG(1) << "got stale shardVersion error " << redact(ex) << " while dispatching "
-                   << redact(targetedCommand) << " after " << (numAttempts + 1)
-                   << " dispatch attempts";
+        } catch (const ExceptionForCat<ErrorCategory::StaleSnapshotError>& ex) {
+            LOG(0) << "got stale snapshot or shard error " << redact(ex) << " while dispatching "
+                  << redact(targetedCommand) << " after " << (numAttempts + 1)
+                  << " dispatch attempts";
             continue;  // Try again if allowed.
         }
         break;  // Success!
