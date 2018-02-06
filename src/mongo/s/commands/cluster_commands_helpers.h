@@ -35,6 +35,7 @@
 #include "mongo/base/string_data.h"
 #include "mongo/bson/bsonobj.h"
 #include "mongo/db/jsobj.h"
+#include "mongo/db/logical_time.h"
 #include "mongo/s/async_requests_sender.h"
 #include "mongo/s/chunk_version.h"
 #include "mongo/s/commands/strategy.h"
@@ -57,6 +58,12 @@ void appendWriteConcernErrorToCmdResponse(const ShardId& shardID,
  * Returns a copy of 'cmdObj' with 'version' appended.
  */
 BSONObj appendShardVersion(BSONObj cmdObj, ChunkVersion version);
+
+/**
+ * Returns a copy of 'cmdObj' with snapshot readConcern with the given atClusterTime appended.
+ * Overwrites existing readConcern.
+ */
+BSONObj appendAtClusterTime(BSONObj cmdObj, LogicalTime atClusterTime);
 
 /**
  * Utility for dispatching unversioned commands to all shards in a cluster.

@@ -37,6 +37,7 @@
 #include "mongo/db/repl/oplog_entry.h"
 #include "mongo/db/service_context.h"
 #include "mongo/db/service_context_d_test_fixture.h"
+#include "mongo/s/commands/cluster_commands_helpers.h"
 #include "mongo/unittest/unittest.h"
 
 namespace mongo {
@@ -531,6 +532,35 @@ TEST_F(FindAndModifyRetryability, AttemptingToRetryUpsertWithRemoveErrors) {
 
     ASSERT_THROWS(constructFindAndModifyRetryResult(opCtx(), request, insertOplog),
                   AssertionException);
+}
+
+TEST_F(FindAndModifyRetryability, dummyBSON) {
+    BSONObj newObj;
+    {
+        auto cmdObj = BSON("find"
+                           << "test.foo"
+                           << "readConcern"
+                           << BSON("level"
+                                   << "snapshot"));
+
+        std::cout << "old obj: " << cmdObj.toString() << std::endl;
+        newObj = appendAtClusterTime(cmdObj, LogicalTime(Timestamp(50, 2)));
+    }
+    std::cout << "new obj: " << newObj.toString() << std::endl;
+
+    {
+        auto cmdObj = BSON("find"
+                           << "test.foo"
+                           << "readConcern"
+                           << BSON("level"
+                                   << "snapshot"
+                                   << "atClusterTime"
+                                   << Timestamp(1, 2)));
+
+        std::cout << "old obj: " << cmdObj.toString() << std::endl;
+        newObj = appendAtClusterTime(cmdObj, LogicalTime(Timestamp(50, 2)));
+    }
+    std::cout << "new obj: " << newObj.toString() << std::endl;
 }
 
 }  // namespace

@@ -174,6 +174,25 @@ BSONObj appendShardVersion(BSONObj cmdObj, ChunkVersion version) {
     return cmdWithVersionBob.obj();
 }
 
+BSONObj appendAtClusterTime(BSONObj cmdObj, LogicalTime atClusterTime) {
+    // Append all original fields except readConcern to the new command.
+    BSONObjBuilder bob;
+    for (auto elem : cmdObj) {
+        const auto name = elem.fieldNameStringData();
+        if (name != "readConcern") {
+            bob.append(elem);
+        }
+    }
+
+    // Add the new snapshot readConcern with atClusterTime.
+    BSONObjBuilder readConcernBob(bob.subobjStart("readConcern"));
+    readConcernBob.append("level", "snapshot");
+    readConcernBob.append("atClusterTime", atClusterTime.asTimestamp());
+    readConcernBob.doneFast();
+
+    return bob.obj();
+}
+
 std::vector<AsyncRequestsSender::Response> scatterGatherUnversionedTargetAllShards(
     OperationContext* opCtx,
     const std::string& dbName,
